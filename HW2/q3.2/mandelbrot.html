@@ -1,0 +1,113 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Mandelbrotting</title>
+<style> .box { text-align: center; width: calc(3.5vw + 40px); } </style>
+
+<script id="vertex-shader" type="text/x-shader/x-vertex">
+attribute vec3 a_position;
+varying vec2 v_Position;
+void main(void)
+{
+  v_Position = vec2(a_position.xy);
+  gl_Position = vec4(a_position, 1.0);
+}
+</script>
+
+<script id="fragment-shader" type="text/x-shader/x-fragment">
+precision highp float;
+varying vec2 v_Position;
+
+#define PI 3.1415926538
+
+float mag(vec2 p) { return float(sqrt(pow(p.x, 2.0) + pow(p.y, 2.0))); }
+vec2 mult(vec2 x, vec2 y) { return vec2((x.x * y.x) - (x.y * y.y), (x.x * y.y) + (x.y * y.x)); }
+
+vec2 roots(vec2 q) {
+
+  // CHANGE N HERE
+  // !!!!!!!!!!!!!
+  const int n = 10;
+
+  vec2 temp = q;
+  // roots
+  vec2 arr[n];
+  vec2 outArr[n];
+
+  for (int k = 0; k < n; k++) {
+    // real, imaginary array
+    arr[k] = vec2(1.01 * cos(2.0 * PI * float(k) / float(n)), 1.01 * sin(2.0 * PI * float(k) / float(n)));
+    // q - rk
+    outArr[k] = q - arr[k];
+    temp = mult(temp, outArr[k]);
+  }
+  return temp;
+}
+
+int i = 0, curr_iter = 0;
+
+void main(void) {
+  vec2 q = vec2(v_Position.x * 2.0, v_Position.y * 2.0);
+  vec2 c = vec2(q);
+
+  for (int j = 0; j < 100; j++) {
+    q = roots(q);
+    i++;
+    curr_iter = j;
+    if (mag(q) >= 2.0) { break; }
+  }
+
+  if (i == 100) { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }
+  else {
+    float color = 1.0 - (1.0/float(curr_iter));
+    gl_FragColor = vec4(color, color, color, 1.0);
+  }
+}
+</script>
+
+<script type="text/javascript" src="js/mandelbrot.js"></script>
+
+<script type="text/javascript">
+// WebGL rendering context
+var gl = null;
+
+function draw()
+{
+  renderTriangle(gl);
+}
+
+function start()
+{
+  var canvas = document.getElementById("canvas");
+
+  // Initialize the OpenGL rendering context
+  gl = canvas.getContext("experimental-webgl");
+
+  // Only continue if WebGL is available and working
+  if (gl)
+  {
+    // initialize shader programs
+    initShaders(gl);
+
+    // initialize a very simple scene, a triangle
+    initBuffers(gl);
+
+    // call the draw() function every 20 milliseconds
+    setInterval(draw, 20);
+  }
+  else
+  {
+    alert("WebGL initialization failed! Your browser does not support WebGL or it is not properly configured.");
+  }
+}
+</script>
+
+</head>
+<body onload="start()">
+  <center>
+  <canvas id="canvas" width="600" height="600">
+    If you are seeing this message your web browser does not support the HTML5 &lt;canvas>&gt; element.
+  </canvas>
+  </center>
+</body>
+</html>
