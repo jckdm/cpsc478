@@ -115,8 +115,8 @@ void setUp(vector<VEC3>& cen, vector<VEC3>& col, vector<VEC3>& lpos, vector<VEC3
   lcol.push_back(VEC3(0.5, 0.0, 0.0));
 }
 
-VEC3 intersectSphere(VEC3 ray, VEC3 cen, float r) {
-  VEC3 bad(FLT_MAX, FLT_MAX, 0.0);
+VEC3 intersectSphere(VEC3 ray, VEC3 cen, float r, bool shadows) {
+  VEC3 bad(FLT_MIN, FLT_MIN, 0.0);
   VEC3 e(0.0, 0.0, 0.0); // eye
   VEC3 l = e - cen;
   float a = ray.dot(ray);
@@ -126,28 +126,30 @@ VEC3 intersectSphere(VEC3 ray, VEC3 cen, float r) {
   float discr = (b * b) - 4 * a * c;
   if (discr < 0.0) { return bad; }
 
-  float root1 = (-1.0 * b - sqrt(discr)) / (2.0 * a);
-  float root2 = (-1.0 * b + sqrt(discr)) / (2.0 * a);
+  float root1 = (-b - sqrt(discr)) / (2.0 * a);
+  float root2 = (-b + sqrt(discr)) / (2.0 * a);
 
-  if (root1 > 0.0) { return root1 * ray; }
-  else if (root2 > 0.0) { return root2 * ray; }
+  // point of intersection
+  float limit = (shadows == false) ? 0.0 : 1.0;
+  if (root1 > limit) { return root1 * ray; }
+  else if (root2 > limit) { return root2 * ray; }
   return bad;
 }
 
-VEC4 intersectScene(VEC3 ray, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r) {
-  VEC4 closest = VEC4(FLT_MAX, FLT_MAX, 3.0, 3.0);
+VEC3 intersectScene(VEC3 ray, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, int &s, bool flag) {
+  VEC3 closest(FLT_MIN, FLT_MIN, 0.0);
 
   for (int i = 0; i < cen.size(); i++) {
-    VEC3 n = intersectSphere(ray, cen[i], r[i]);
-    if (n != VEC3(FLT_MAX, FLT_MAX, 0.0)) {
-      closest = extend(n);
-      closest[3] = i;
+    VEC3 p = intersectSphere(ray, cen[i], r[i], flag);
+    if (p != VEC3(FLT_MIN, FLT_MIN, 0.0)) {
+      closest = p;
+      s = i;
     }
   }
   return closest;
 }
 
-VEC3 genRay(int x, int y) {
+VEC3 genRay(int x, int y, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, int &s, bool flag, bool shadows) {
   VEC3 e(0.0, 0.0, 0.0);
   VEC3 l(0.0, 0.0, 1.0);
   VEC3 t(0.0, 1.0, 0.0);
@@ -160,57 +162,55 @@ VEC3 genRay(int x, int y) {
   float w = (h * 800.0) / 600.0;
 
   float right = w/2.0;
-  float left = -1.0 * right;
+  float left = -right;
   float top = h/2.0;
-  float bottom = -1.0 * top;
+  float bottom = -top;
 
   float u = left + (right - left) * (x + 0.5) / XRES;
   float v = bottom + (top - bottom) * (y + 0.5) / YRES;
 
-  VEC3 dir = uu*u*-1.0 + vv*v + ww*-1.0;
-  dir.normalize();
-  return dir;
+  VEC3 ray = -ww + (-u*uu) + v*vv;
+  ray.normalize();
+
+  return (flag == true) ? ray : intersectScene(ray, cen, col, r, s, shadows);
 }
 
-VEC3 rayColor(VEC3 ray, vector<VEC3>& col, int s, vector<VEC3>& lpos, vector<VEC3>& lcol, VEC3 n, bool flag, bool phong) {
+VEC3 rayColor(VEC3 p, vector<VEC3>& col, vector<VEC3>& cen, int s, vector<VEC3>& lpos, vector<VEC3>& lcol, bool flag, bool phong) {
   VEC3 color(0.0, 0.0, 0.0);
-  n.normalize();
+  VEC3 v(0.0, 0.0, 1.0);
 
-  // 3.ppm
+  VEC3 n = p - cen[s];
+  n.normalize();
+  VEC3 Kd = col[s];
+
   if (flag == false) {
-    VEC3 l = lpos[0] - n;
-    l.normalize();
-    float m = max(0.0, n.dot(l));
-    for (int i = 0; i < 3; i++) { color[i] = col[s][i] * lcol[0][i] * m; }
+    VEC3 l = lpos[0] - p; l.normalize();
+    float nl = max(0.0, n.dot(l));
+    VEC3 Ii = lcol[0];
+    color = Kd.cwiseProduct(Ii) * nl;
   }
   else {
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < 2; j++) {
-        VEC3 l = lpos[j] - n;
-        l.normalize();
-
-        float m = max(0.0, n.dot(l));
-        // 4.ppm
-        if (phong == false) {
-          color[i] += col[s][i] * lcol[j][i] * m;
-        }
-        // 5.ppm
-        else {
-          VEC3 h = l + VEC3(0.0, 0.0, 1.0);
-          h.normalize();
-          color[i] += (col[s][i] * lcol[j][i] * m) + (col[s][i] * lcol[j][i] * pow(max(0.0, n.dot(h)), 10.0));
-        }
+    for (int i = 0; i < lpos.size(); i++) {
+      VEC3 l = lpos[i] - p; l.normalize();
+      float nl = max(0.0, n.dot(l));
+      VEC3 Ii = lcol[i];
+      if (phong == false) { color += Kd.cwiseProduct(Ii) * nl; }
+      if (phong == true) {
+        VEC3 h = l - v; h.normalize();
+        float nh = pow(max(0.0, n.dot(h)), 10.0);
+        color += ((Kd.cwiseProduct(Ii) * nl) + (Kd.cwiseProduct(Ii) * nh));
       }
     }
   }
   return color;
 }
 
-void make1(float *values, bool xy, bool ab) {
+void make1(float *values, bool xy, bool ab, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r) {
   for (int y = 0; y < YRES; y++) {
     for (int x = 0; x < XRES; x++) {
 
-      VEC3 ray = genRay(x, y);
+      int s;
+      VEC3 ray = genRay(x, y, cen, col, r, s, true, false);
       int in = 3 * (y * XRES + x);
 
       if (xy == true) {
@@ -231,22 +231,19 @@ void make1(float *values, bool xy, bool ab) {
   }
 }
 
-//ray-sphere intersection
+// ray-sphere intersection
 void make2(float *values, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r) {
   for (int y = 0; y < YRES; y++) {
     for (int x = 0; x < XRES; x++) {
 
-      VEC3 ray = genRay(x, (YRES - y));
-      VEC4 result = intersectScene(ray, cen, col, r);
-      int s = result[3];
+      int s = 3;
+      genRay(x, (YRES - y), cen, col, r, s, false, false);
       VEC3 c = fix(col[s]);
       int in = 3 * (y * XRES + x);
 
-      if (s < 3) {
-        values[in    ] = c[0];
-        values[in + 1] = c[1];
-        values[in + 2] = c[2];
-      }
+      values[in    ] = c[0];
+      values[in + 1] = c[1];
+      values[in + 2] = c[2];
     }
   }
 }
@@ -256,12 +253,51 @@ void make345(float *values, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, vector
   for (int y = 0; y < YRES; y++) {
     for (int x = 0; x < XRES; x++) {
 
-      VEC3 ray = genRay(x, (YRES - y));
-      VEC4 n = intersectScene(ray, cen, col, r);
-      VEC3 c = fix(rayColor(ray, col, n[3], lpos, lcol, truncate(n), flag, phong));
-      int in = 3 * (y * XRES + x);
+      int s = 3;
+      VEC3 ray = genRay(x, (YRES - y), cen, col, r, s, false, false);
+      if (s != 3) {
+        VEC3 c = fix(rayColor(ray, col, cen, s, lpos, lcol, flag, phong));
+        int in = 3 * (y * XRES + x);
 
-      if (n[3] < 3) {
+        values[in    ] = c[0];
+        values[in + 1] = c[1];
+        values[in + 2] = c[2];
+      }
+    }
+  }
+}
+
+// shadows
+void make6(float *values, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, vector<VEC3>& lpos, vector<VEC3>& lcol, bool flag, bool phong) {
+  VEC3 v(0.0, 0.0, 1.0);
+  for (int y = 0; y < YRES; y++) {
+    for (int x = 0; x < XRES; x++) {
+
+      int s = 3;
+      VEC3 pt = genRay(x, (YRES - y), cen, col, r, s, false, true);
+      if (s < 3) {
+        VEC3 c = fix(rayColor(pt, col, cen, s, lpos, lcol, flag, phong));
+
+        for (int i = 0; i < lpos.size(); i++) {
+          int ss;
+          VEC3 p = pt + lpos[i];
+          VEC3 test = intersectScene(p, cen, col, r, ss, true);
+          if (ss < 3) {
+            VEC3 new_p = test;
+            VEC3 n = new_p - cen[ss];
+            n.normalize(); new_p.normalize();
+            VEC3 Kd = col[ss];
+            VEC3 l = lpos[i] - new_p; l.normalize();
+            float nl = max(0.0, n.dot(l));
+            VEC3 Ii = lcol[i];
+
+            VEC3 h = l - v; h.normalize();
+            float nh = pow(max(0.0, n.dot(h)), 10.0);
+            c += fix(((Kd.cwiseProduct(Ii) * nl) + (Kd.cwiseProduct(Ii) * nh)));
+          }
+        }
+        int in = 3 * (y * XRES + x);
+
         values[in    ] = c[0];
         values[in + 1] = c[1];
         values[in + 2] = c[2];
@@ -276,45 +312,36 @@ int main(int argc, char** argv) {
   int xRes = 800;
   int yRes = 600;
   float values[SIZE * 3];
-
-  VEC3 e(0.0, 0.0, 0.0); // eye
-  VEC3 l(0.0, 0.0, 1.0); // lookat
-  VEC3 t(0.0, 1.0, 0.0); // up
-
   VEC3 r(997.0, 3.0, 3.0);
-
   vector<VEC3> cen;
   vector<VEC3> col;
   vector<VEC3> lpos;
   vector<VEC3> lcol;
   setUp(cen, col, lpos, lcol);
 
-  make1(values, true, false);
+  make1(values, true, false, cen, col, r);
   writePPM("1x.ppm", xRes, yRes, values);
-  make1(values, true, true);
+  make1(values, true, true, cen, col, r);
   writePPM("1xabs.ppm", xRes, yRes, values);
-  make1(values, false, false);
+  make1(values, false, false, cen, col, r);
   writePPM("1y.ppm", xRes, yRes, values);
-  make1(values, false, true);
+  make1(values, false, true, cen, col, r);
   writePPM("1yabs.ppm", xRes, yRes, values);
-
-  clean(values);
 
   make2(values, cen, col, r);
   writePPM("2.ppm", xRes, yRes, values);
 
-  clean(values);
-
-  make345(values, cen, col, r, lcol, lpos, false, false);
+  make345(values, cen, col, r, lpos, lcol, false, false);
   writePPM("3.ppm", xRes, yRes, values);
 
-  clean(values);
-
-  make345(values, cen, col, r, lcol, lpos, true, false);
+  make345(values, cen, col, r, lpos, lcol, true, false);
   writePPM("4.ppm", xRes, yRes, values);
 
-  make345(values, cen, col, r, lcol, lpos, true, true);
+  make345(values, cen, col, r, lpos, lcol, true, true);
   writePPM("5.ppm", xRes, yRes, values);
+
+  make6(values, cen, col, r, lpos, lcol, true, true);
+  writePPM("6.ppm", xRes, yRes, values);
 
   return 0;
 }
