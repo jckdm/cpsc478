@@ -109,9 +109,8 @@ void setUp(vector<VEC3>& cen, vector<VEC3>& col, vector<VEC3>& lpos, vector<VEC3
   lcol.push_back(VEC3(0.5, 0.0, 0.0));
 }
 
-VEC3 intersectSphere(VEC3 ray, VEC3 cen, float r, bool shadows) {
+VEC3 intersectSphere(VEC3 ray, VEC3 e, VEC3 cen, float r, double &t, bool shadows) {
   VEC3 bad(FLT_MIN, FLT_MIN, 0.0);
-  VEC3 e(0.0, 0.0, 0.0); // eye
   VEC3 l = e - cen;
   float a = ray.dot(ray);
   float b = 2 * ray.dot(l);
@@ -120,21 +119,21 @@ VEC3 intersectSphere(VEC3 ray, VEC3 cen, float r, bool shadows) {
   float discr = (b * b) - 4 * a * c;
   if (discr < 0.0) { return bad; }
 
-  float root1 = (-b - sqrt(discr)) / (2.0 * a);
-  float root2 = (-b + sqrt(discr)) / (2.0 * a);
+  double root1 = (-b - sqrt(discr)) / (2.0 * a);
+  double root2 = (-b + sqrt(discr)) / (2.0 * a);
 
   // point of intersection
   float limit = (shadows == false) ? 0.0 : 0.001;
-  if (root1 > limit) { return root1 * ray; }
-  else if (root2 > limit) { return root2 * ray; }
+  if (root1 > limit) { t = root1; return root1 * ray; }
+  else if (root2 > limit) { t = root2; return root2 * ray; }
   return bad;
 }
 
-VEC3 intersectScene(VEC3 ray, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, int &s, bool flag) {
+VEC3 intersectScene(VEC3 ray, VEC3 e, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, int &s, double &t, bool flag) {
   VEC3 closest(FLT_MIN, FLT_MIN, 0.0);
 
   for (int i = 0; i < cen.size(); i++) {
-    VEC3 p = intersectSphere(ray, cen[i], r[i], flag);
+    VEC3 p = intersectSphere(ray, e, cen[i], r[i], t, flag);
     if (p != VEC3(FLT_MIN, FLT_MIN, 0.0)) {
       closest = p;
       s = i;
@@ -143,13 +142,13 @@ VEC3 intersectScene(VEC3 ray, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, int 
   return closest;
 }
 
-VEC3 genRay(int x, int y, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, int &s, bool flag, bool shadows) {
+VEC3 genRay(int x, int y, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, int &s, double &t, bool flag, bool shadows) {
   VEC3 e(0.0, 0.0, 0.0);
   VEC3 l(0.0, 0.0, 1.0);
-  VEC3 t(0.0, 1.0, 0.0);
+  VEC3 tt(0.0, 1.0, 0.0);
 
   VEC3 ww = (e - l).normalized();
-  VEC3 uu = t.cross(ww).normalized();
+  VEC3 uu = tt.cross(ww).normalized();
   VEC3 vv = ww.cross(uu);
 
   float h = tan(PI_ * 32.5 / 180) * 2.0;
@@ -166,12 +165,11 @@ VEC3 genRay(int x, int y, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, int &s, 
   VEC3 ray = -ww + (-u*uu) + v*vv;
   ray.normalize();
 
-  return (flag == true) ? ray : intersectScene(ray, cen, col, r, s, shadows);
+  return (flag == true) ? ray : intersectScene(ray, e, cen, col, r, s, t, shadows);
 }
 
-VEC3 rayColor(VEC3 p, vector<VEC3>& col, vector<VEC3>& cen, int s, VEC3 r, vector<VEC3>& lpos, vector<VEC3>& lcol, bool flag, bool phong, bool shadows) {
+VEC3 rayColor(VEC3 p, vector<VEC3>& col, vector<VEC3>& cen, int s, VEC3 r, double &t, vector<VEC3>& lpos, vector<VEC3>& lcol, bool flag, bool phong, bool shadows) {
   VEC3 color(0.0, 0.0, 0.0);
-  VEC3 v(0.0, 0.0, 1.0);
 
   VEC3 n = p - cen[s]; n.normalize();
   VEC3 Kd = col[s];
@@ -189,23 +187,16 @@ VEC3 rayColor(VEC3 p, vector<VEC3>& col, vector<VEC3>& cen, int s, VEC3 r, vecto
       VEC3 Ii = lcol[i];
       if (phong == false) { color += Kd.cwiseProduct(Ii) * nl; }
       if (phong == true) {
-        VEC3 h = l - v; h.normalize();
-        float nh = pow(max(0.0, n.dot(h)), 10.0);
-        color += ((Kd.cwiseProduct(Ii) * nl) + (Kd.cwiseProduct(Ii) * nh));
+        VEC3 v = -p; v.normalize();
+        VEC3 rr = -l + 2 * (l.dot(n)) * n; rr.normalize();
+        float nh = pow(max(0.0, rr.dot(v)), 10.0);
+        VEC3 c = (Kd.cwiseProduct(Ii) * nl) + (Kd.cwiseProduct(Ii) * nh);
         if (shadows == true) {
           int ss = 3;
-          VEC3 test = intersectScene((p + lpos[i]), cen, col, r, ss, true);
-          if (ss >= 3) {
-            n = test - cen[ss]; n.normalize();
-            Kd = col[ss];
-            l = lpos[i] - test; l.normalize();
-            nl = max(0.0, n.dot(l));
-            h = l - v; h.normalize();
-            nh = pow(max(0.0, n.dot(h)), 10.0);
-            color += (Kd.cwiseProduct(Ii) * nl) + (Kd.cwiseProduct(Ii) * nh);
-          }
-          else { color = VEC3(0.0, 0.0, 0.0); }
+          intersectScene(l, p, cen, col, r, ss, t, true);
+          if (ss == 3) { color += c; }
         }
+        else { color += c; }
       }
     }
   }
@@ -216,8 +207,8 @@ void make1(float *values, bool xy, bool ab, vector<VEC3>& cen, vector<VEC3>& col
   for (int y = 0; y < YRES; y++) {
     for (int x = 0; x < XRES; x++) {
 
-      int s;
-      VEC3 ray = genRay(x, y, cen, col, r, s, true, false);
+      int s; double t;
+      VEC3 ray = genRay(x, y, cen, col, r, s, t, true, false);
       int in = 3 * (y * XRES + x);
 
       if (xy == true) {
@@ -243,8 +234,8 @@ void make2(float *values, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r) {
   for (int y = 0; y < YRES; y++) {
     for (int x = 0; x < XRES; x++) {
 
-      int s = 3;
-      genRay(x, (YRES - y), cen, col, r, s, false, false);
+      int s = 3; double t;
+      genRay(x, (YRES - y), cen, col, r, s, t, false, false);
       VEC3 c = fix(col[s]);
       int in = 3 * (y * XRES + x);
 
@@ -260,16 +251,15 @@ void make3456(float *values, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, vecto
   for (int y = 0; y < YRES; y++) {
     for (int x = 0; x < XRES; x++) {
 
-      int s = 3;
-      VEC3 ray = genRay(x, (YRES - y), cen, col, r, s, false, false);
-      if (s < 3) {
-        VEC3 c = rayColor(ray, col, cen, s, r, lpos, lcol, flag, phong, shadows);
-        int in = 3 * (y * XRES + x);
+      int s = 3; double t = FLT_MAX;
+      VEC3 ray = genRay(x, (YRES - y), cen, col, r, s, t, false, false);
 
-        values[in    ] = c[0];
-        values[in + 1] = c[1];
-        values[in + 2] = c[2];
-      }
+      VEC3 c = rayColor(ray, col, cen, s, r, t, lpos, lcol, flag, phong, shadows);
+      int in = 3 * (y * XRES + x);
+
+      values[in    ] = c[0];
+      values[in + 1] = c[1];
+      values[in + 2] = c[2];
     }
   }
 }
@@ -277,8 +267,7 @@ void make3456(float *values, vector<VEC3>& cen, vector<VEC3>& col, VEC3 r, vecto
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char** argv) {
-  int xRes = 800;
-  int yRes = 600;
+  int xRes = 800, yRes = 600;
   float values[SIZE * 3];
   VEC3 r(997.0, 3.0, 3.0);
   vector<VEC3> cen;
