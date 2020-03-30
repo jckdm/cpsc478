@@ -1,0 +1,1 @@
+I couldn't get refraction to work, and so I didn't get to attempt Fresnel Effects. For an ENTIRE week I was stuck because I had switched the order of my light positions and light colors. It was miserable. Then, I was stuck on reflections for another week because I was confusing the eye and origin positions. As such, I'm pretty proud of the enclosed code.
